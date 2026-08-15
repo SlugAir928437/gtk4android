@@ -28,6 +28,7 @@
 
 #include "gdkvulkancontextprivate.h"
 
+#ifdef GDK_RENDERING_VULKAN
 /* Compatibility shims for NDK r25c: several Vulkan extensions were added
  * to Vulkan headers later than the ones bundled with NDK r25c. Definitions
  * taken from KhronosGroup/Vulkan-Headers. */
@@ -68,6 +69,8 @@ typedef VkResult (VKAPI_PTR *PFN_vkReleaseSwapchainImagesEXT)(VkDevice device, c
 #ifndef VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR
 #define VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR 0x00000001
 #endif
+#endif /* GDK_RENDERING_VULKAN */
+
 
 
 #include "gdkdebugprivate.h"

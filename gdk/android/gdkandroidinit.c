@@ -543,6 +543,8 @@ gdk_android_initialize (JNIEnv *env, jobject application_classloader, jobject ac
   jclass android_input_event = (*env)->FindClass (env, "android/view/InputEvent");
   gdk_android_java_cache.a_input_event.klass = (*env)->NewGlobalRef (env, android_input_event);
   POPULATE_REFCACHE_METHOD (a_input_event, get_device, "getDevice", "()Landroid/view/InputDevice;")
+  POPULATE_REFCACHE_METHOD (a_input_event, get_source, "getSource", "()I")
+  POPULATE_REFCACHE_METHOD (a_input_event, get_device_id, "getDeviceId", "()I")
 
   jclass android_input_device = (*env)->FindClass (env, "android/view/InputDevice");
   gdk_android_java_cache.a_input_device.klass = (*env)->NewGlobalRef (env, android_input_device);
@@ -555,6 +557,29 @@ gdk_android_initialize (JNIEnv *env, jobject application_classloader, jobject ac
   POPULATE_REFCACHE_METHOD (a_motion_range, get_min, "getMin", "()F")
   POPULATE_REFCACHE_METHOD (a_motion_range, get_max, "getMax", "()F")
   POPULATE_REFCACHE_METHOD (a_motion_range, get_resolution, "getResolution", "()F")
+
+  jclass android_motion_event = (*env)->FindClass (env, "android/view/MotionEvent");
+  gdk_android_java_cache.motion_event.klass = (*env)->NewGlobalRef (env, android_motion_event);
+  POPULATE_REFCACHE_METHOD (motion_event, get_action, "getAction", "()I")
+  POPULATE_REFCACHE_METHOD (motion_event, get_action_mask, "getActionMasked", "()I")
+  POPULATE_REFCACHE_METHOD (motion_event, get_action_index, "getActionIndex", "()I")
+  POPULATE_REFCACHE_METHOD (motion_event, get_meta_state, "getMetaState", "()I")
+  POPULATE_REFCACHE_METHOD (motion_event, get_event_time, "getEventTime", "()J")
+  POPULATE_REFCACHE_METHOD (motion_event, get_down_time, "getDownTime", "()J")
+  POPULATE_REFCACHE_METHOD (motion_event, get_pointer_count, "getPointerCount", "()I")
+  POPULATE_REFCACHE_METHOD (motion_event, get_pointer_id, "getPointerId", "(I)I")
+  POPULATE_REFCACHE_METHOD (motion_event, get_x, "getX", "(I)F")
+  POPULATE_REFCACHE_METHOD (motion_event, get_y, "getY", "(I)F")
+  POPULATE_REFCACHE_METHOD (motion_event, get_axis_value, "getAxisValue", "(II)F")
+  POPULATE_REFCACHE_METHOD (motion_event, get_tool_type, "getToolType", "(I)I")
+  POPULATE_REFCACHE_METHOD (motion_event, get_button_state, "getButtonState", "()I")
+
+  jclass android_key_event = (*env)->FindClass (env, "android/view/KeyEvent");
+  gdk_android_java_cache.key_event.klass = (*env)->NewGlobalRef (env, android_key_event);
+  POPULATE_REFCACHE_METHOD (key_event, get_action, "getAction", "()I")
+  POPULATE_REFCACHE_METHOD (key_event, get_meta_state, "getMetaState", "()I")
+  POPULATE_REFCACHE_METHOD (key_event, get_event_time, "getEventTime", "()J")
+  POPULATE_REFCACHE_METHOD (key_event, get_key_code, "getKeyCode", "()I")
 
   jclass android_drag_event = (*env)->FindClass (env, "android/view/DragEvent");
   gdk_android_java_cache.a_drag_event.klass = (*env)->NewGlobalRef (env, android_drag_event);
@@ -741,6 +766,8 @@ gdk_android_finalize (void)
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_input_event.klass);
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_input_device.klass);
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_motion_range.klass);
+  (*env)->DeleteGlobalRef (env, gdk_android_java_cache.motion_event.klass);
+  (*env)->DeleteGlobalRef (env, gdk_android_java_cache.key_event.klass);
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_drag_event.klass);
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_activity_manager.klass);
   (*env)->DeleteGlobalRef (env, gdk_android_java_cache.a_uri.klass);

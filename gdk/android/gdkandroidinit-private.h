@@ -362,6 +362,8 @@ typedef struct
   {
     jclass klass;
     jmethodID get_device;
+    jmethodID get_source;
+    jmethodID get_device_id;
   } a_input_event;
   struct
   {
@@ -377,6 +379,31 @@ typedef struct
     jmethodID get_max;
     jmethodID get_resolution;
   } a_motion_range;
+  struct
+  {
+    jclass klass;
+    jmethodID get_action;
+    jmethodID get_action_mask;
+    jmethodID get_action_index;
+    jmethodID get_meta_state;
+    jmethodID get_event_time;
+    jmethodID get_down_time;
+    jmethodID get_pointer_count;
+    jmethodID get_pointer_id;
+    jmethodID get_x;
+    jmethodID get_y;
+    jmethodID get_axis_value;
+    jmethodID get_tool_type;
+    jmethodID get_button_state;
+  } motion_event;
+  struct
+  {
+    jclass klass;
+    jmethodID get_action;
+    jmethodID get_meta_state;
+    jmethodID get_event_time;
+    jmethodID get_key_code;
+  } key_event;
   struct
   {
     jclass klass;

@@ -194,16 +194,23 @@ gdk_android_seat_class_init (GdkAndroidSeatClass *klass)
 static const GdkAxisFlags gdk_android_seat_motion_flags = GDK_AXIS_FLAG_X | GDK_AXIS_FLAG_Y;
 static const GdkAxisFlags gdk_android_seat_stylus_flags = gdk_android_seat_motion_flags | GDK_AXIS_FLAG_PRESSURE | GDK_AXIS_FLAG_DISTANCE | GDK_AXIS_FLAG_XTILT | GDK_AXIS_FLAG_YTILT;
 
+/* Android MotionEvent tool type constants (android.view.MotionEvent
+ * TOOL_TYPE_*). The values are identical to the NDK's
+ * AMOTION_EVENT_TOOL_TYPE_* constants. */
+#define GDK_ANDROID_TOOL_TYPE_STYLUS 2
+#define GDK_ANDROID_TOOL_TYPE_ERASER 4
+#define GDK_ANDROID_TOOL_TYPE_MOUSE  3
+
 static void
 gdk_android_seat_init (GdkAndroidSeat *self)
 {
-  self->stylus = gdk_device_tool_new (AMOTION_EVENT_TOOL_TYPE_STYLUS, 0,
+  self->stylus = gdk_device_tool_new (GDK_ANDROID_TOOL_TYPE_STYLUS, 0,
                                       GDK_DEVICE_TOOL_TYPE_PEN,
                                       gdk_android_seat_stylus_flags);
-  self->eraser = gdk_device_tool_new (AMOTION_EVENT_TOOL_TYPE_ERASER, 0,
+  self->eraser = gdk_device_tool_new (GDK_ANDROID_TOOL_TYPE_ERASER, 0,
                                       GDK_DEVICE_TOOL_TYPE_ERASER,
                                       gdk_android_seat_stylus_flags);
-  self->mouse = gdk_device_tool_new (AMOTION_EVENT_TOOL_TYPE_MOUSE, 0,
+  self->mouse = gdk_device_tool_new (GDK_ANDROID_TOOL_TYPE_MOUSE, 0,
                                      GDK_DEVICE_TOOL_TYPE_MOUSE,
                                      gdk_android_seat_motion_flags);
 }
@@ -219,40 +226,53 @@ gdk_android_seat_get_device_tool (GdkAndroidSeat *self, gint32 tool_type)
 {
   switch (tool_type)
     {
-    case AMOTION_EVENT_TOOL_TYPE_STYLUS:
+    case GDK_ANDROID_TOOL_TYPE_STYLUS:
       return self->stylus;
-    case AMOTION_EVENT_TOOL_TYPE_ERASER:
+    case GDK_ANDROID_TOOL_TYPE_ERASER:
       return self->eraser;
-    case AMOTION_EVENT_TOOL_TYPE_MOUSE:
+    case GDK_ANDROID_TOOL_TYPE_MOUSE:
       return self->mouse;
     default:
       return NULL;
     }
 }
 
+/* Android MotionEvent axis constants (android.view.MotionEvent AXIS_*).
+ * The values are identical to the NDK's AMOTION_EVENT_AXIS_* constants. */
+#define GDK_ANDROID_AXIS_X           0
+#define GDK_ANDROID_AXIS_Y           1
+#define GDK_ANDROID_AXIS_PRESSURE    2
+#define GDK_ANDROID_AXIS_ORIENTATION 8
+#define GDK_ANDROID_AXIS_DISTANCE    24
+#define GDK_ANDROID_AXIS_TILT        25
+
 gboolean
 gdk_android_seat_normalize_range (JNIEnv *env, jobject device,
-                                  const AInputEvent *event, size_t pointer_index,
+                                  jobject motion_event, size_t pointer_index,
                                   guint32 mask,
                                   gfloat from, gfloat to,
                                   gdouble *out)
 {
   g_return_val_if_fail (out != NULL, FALSE);
 
+  const GdkAndroidJavaCache *cache = gdk_android_get_java_cache ();
+
   jobject axis = (*env)->CallObjectMethod (env,
                                            device,
-                                           gdk_android_get_java_cache ()->a_input_device.get_motion_range,
-                                           mask);
+                                           cache->a_input_device.get_motion_range,
+                                           (jint) mask);
   if (!axis)
     return FALSE;
 
   gfloat min = (*env)->CallFloatMethod (env,
                                         axis,
-                                        gdk_android_get_java_cache ()->a_motion_range.get_min);
+                                        cache->a_motion_range.get_min);
   gfloat max = (*env)->CallFloatMethod (env,
                                         axis,
-                                        gdk_android_get_java_cache ()->a_motion_range.get_max);
-  gfloat value = AMotionEvent_getAxisValue (event, mask, pointer_index);
+                                        cache->a_motion_range.get_max);
+  gfloat value = (*env)->CallFloatMethod (env, motion_event,
+                                          cache->motion_event.get_axis_value,
+                                          (jint) mask, (jint) pointer_index);
 
   // $v_\text{new}=from+\frac{(v-min)*(to-from)}{max-min}$
   *out = from + ((value - min) * (to - from)) / (max - min);
@@ -260,31 +280,32 @@ gdk_android_seat_normalize_range (JNIEnv *env, jobject device,
 }
 
 gdouble *
-gdk_android_seat_create_axes_from_motion_event (const AInputEvent *event, size_t pointer_index)
+gdk_android_seat_create_axes_from_motion_event (JNIEnv *env, jobject motion_event, size_t pointer_index)
 {
-  gdouble axes[GDK_AXIS_LAST] = { 0 };
-  axes[0] = AMotionEvent_getX (event, pointer_index);
-  axes[1] = AMotionEvent_getY (event, pointer_index);
+  const GdkAndroidJavaCache *cache = gdk_android_get_java_cache ();
 
-  JNIEnv *env = gdk_android_get_env ();
+  gdouble axes[GDK_AXIS_LAST] = { 0 };
+  axes[0] = (*env)->CallFloatMethod (env, motion_event, cache->motion_event.get_axis_value, GDK_ANDROID_AXIS_X, (jint) pointer_index);
+  axes[1] = (*env)->CallFloatMethod (env, motion_event, cache->motion_event.get_axis_value, GDK_ANDROID_AXIS_Y, (jint) pointer_index);
+
   (*env)->PushLocalFrame (env, 1);
   jobject device = (*env)->CallStaticObjectMethod (env,
-                                                   gdk_android_get_java_cache ()->a_input_device.klass,
-                                                   gdk_android_get_java_cache ()->a_input_device.get_device_from_id,
-                                                   AInputEvent_getDeviceId (event));
+                                                   cache->a_input_device.klass,
+                                                   cache->a_input_device.get_device_from_id,
+                                                   (*env)->CallIntMethod (env, motion_event, cache->a_input_event.get_device_id));
   if (device)
     {
       // The values from the from/to parameters are from the switch statement in
       // _gdk_device_add_axis. As the _gdk_device_* family of functions is not
       // used, ensure they are kept in sync manually.
 
-      if (!gdk_android_seat_normalize_range (env, device, event, pointer_index, AMOTION_EVENT_AXIS_PRESSURE, 0.f, 1.f, &axes[GDK_AXIS_PRESSURE]))
+      if (!gdk_android_seat_normalize_range (env, device, motion_event, pointer_index, GDK_ANDROID_AXIS_PRESSURE, 0.f, 1.f, &axes[GDK_AXIS_PRESSURE]))
         axes[GDK_AXIS_PRESSURE] = 0.;
-      if (!gdk_android_seat_normalize_range (env, device, event, pointer_index, AMOTION_EVENT_AXIS_DISTANCE, 0.f, 1.f, &axes[GDK_AXIS_DISTANCE]))
+      if (!gdk_android_seat_normalize_range (env, device, motion_event, pointer_index, GDK_ANDROID_AXIS_DISTANCE, 0.f, 1.f, &axes[GDK_AXIS_DISTANCE]))
         axes[GDK_AXIS_DISTANCE] = 0.;
 
       gdouble orientation, tilt;
-      if (gdk_android_seat_normalize_range (env, device, event, pointer_index, AMOTION_EVENT_AXIS_ORIENTATION, -G_PI, G_PI, &orientation) && gdk_android_seat_normalize_range (env, device, event, pointer_index, AMOTION_EVENT_AXIS_TILT, 0.f, G_PI / 2.f, &tilt))
+      if (gdk_android_seat_normalize_range (env, device, motion_event, pointer_index, GDK_ANDROID_AXIS_ORIENTATION, -G_PI, G_PI, &orientation) && gdk_android_seat_normalize_range (env, device, motion_event, pointer_index, GDK_ANDROID_AXIS_TILT, 0.f, G_PI / 2.f, &tilt))
         {
           // Taken and modified from Termux-x11. Unlike the other axes, x/y-tilt are
           // in [-1;1], which are the bounds of $\frac{\arcsin(x)}{0.5*\pi}$.

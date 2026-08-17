@@ -281,6 +281,30 @@ gdk_android_initialize (JNIEnv *env, jobject application_classloader, jobject ac
   gdk_android_java_cache.surface_exception.klass = (*env)->NewGlobalRef (env, surface_exception_class);
   POPULATE_REFCACHE_METHOD (surface_exception, constructor, "<init>", "(Ljava/lang/Object;)V")
 
+  /* Cache android.view.Surface early, before the long chain of framework
+   * class lookups below: a failed lookup anywhere in that chain leaves a
+   * pending JNI exception that turns every later FindClass/GetFieldID into
+   * a silent NULL, and the native-window path below depends on this field.
+   * Resolve failures explicitly instead of letting them poison the cache. */
+  jclass android_surface_class = (*env)->FindClass (env, "android/view/Surface");
+  if ((*env)->ExceptionCheck (env))
+    {
+      (*env)->ExceptionDescribe (env);
+      (*env)->ExceptionClear (env);
+      g_warning ("Failed to resolve android/view/Surface; native window access will be degraded");
+    }
+  else
+    {
+      gdk_android_java_cache.a_surface.klass = (*env)->NewGlobalRef (env, android_surface_class);
+      POPULATE_REFCACHE_MEMBER (a_surface, native_object, "mNativeObject", "J")
+      if (gdk_android_java_cache.a_surface.native_object == NULL)
+        {
+          (*env)->ExceptionDescribe (env);
+          (*env)->ExceptionClear (env);
+          g_warning ("Failed to resolve Surface.mNativeObject; native window access will be degraded");
+        }
+    }
+
   // BEGIN DEPRECATION CHECK
 
   jclass android_activity_class = (*env)->FindClass (env, "android/app/Activity");
@@ -511,13 +535,6 @@ gdk_android_initialize (JNIEnv *env, jobject application_classloader, jobject ac
   gdk_android_java_cache.a_bundle.klass = (*env)->NewGlobalRef (env, android_bundle);
   POPULATE_REFCACHE_METHOD (a_bundle, constructor, "<init>", "()V")
   POPULATE_REFCACHE_METHOD (a_bundle, put_binder, "putBinder", "(Ljava/lang/String;Landroid/os/IBinder;)V")
-
-  jclass android_surface_class = (*env)->FindClass (env, "android/view/Surface");
-  gdk_android_java_cache.a_surface.klass = (*env)->NewGlobalRef (env, android_surface_class);
-  // mNativeObject holds the native Surface* (an ANativeWindow subclass); read
-  // it directly because ANativeWindow_fromSurface only exists at API 26+ and
-  // we must support android-24 devices.
-  POPULATE_REFCACHE_MEMBER (a_surface, native_object, "mNativeObject", "J")
 
   jclass android_surface_holder_class = (*env)->FindClass (env, "android/view/SurfaceHolder");
   gdk_android_java_cache.a_surfaceholder.klass = (*env)->NewGlobalRef (env, android_surface_holder_class);

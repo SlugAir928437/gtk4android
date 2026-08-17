@@ -28,6 +28,7 @@
 #include "gdkandroidchoreographersource-private.h"
 
 #include <android/native_window.h>
+#include <dlfcn.h>
 
 #include "gdkandroidinit-private.h"
 #include "gdkandroiddisplay-private.h"
@@ -61,7 +62,7 @@
 
 /* Obtain the native ANativeWindow* behind a Java android.view.Surface.
  *
- * ANativeWindow_fromSurface() only exists since API 26, but the Java
+ * ANativeWindow_fromSurface() is documented since API 26, but the Java
  * Surface.mNativeObject field has held the native Surface* (which is an
  * ANativeWindow subclass) since API 1, so reading it via JNI keeps this
  * backend working on android-24 devices without linking libnativewindow.
@@ -70,9 +71,40 @@
 static ANativeWindow *
 gdk_android_surface_get_native_window (JNIEnv *env, jobject android_surface)
 {
-  jlong native = (*env)->GetLongField (env, android_surface,
-                                       gdk_android_get_java_cache ()->a_surface.native_object);
-  return (ANativeWindow *)(gintptr) native;
+  const GdkAndroidJavaCache *cache = gdk_android_get_java_cache ();
+
+  if (cache->a_surface.native_object != NULL)
+    {
+      jlong native = (*env)->GetLongField (env, android_surface,
+                                           cache->a_surface.native_object);
+      if (native != 0)
+        return (ANativeWindow *)(gintptr) native;
+    }
+
+  /* The mNativeObject field could not be resolved (a failed earlier lookup
+   * left the JNI cache half-initialized). Fall back to the documented NDK
+   * entry point when it exists at runtime (API 26+ devices), resolved lazily
+   * via dlsym so we do not introduce a link-time libnativewindow dependency. */
+  {
+    static ANativeWindow *(*from_surface) (JNIEnv *, jobject);
+    static gboolean resolved = FALSE;
+
+    if (!resolved)
+      {
+        resolved = TRUE;
+        void *handle = dlopen ("libnativewindow.so", RTLD_NOW | RTLD_LOCAL);
+        if (handle == NULL)
+          handle = dlopen ("libandroid.so", RTLD_NOW | RTLD_LOCAL);
+        if (handle != NULL)
+          from_surface = (ANativeWindow *(*)(JNIEnv *, jobject))
+            dlsym (handle, "ANativeWindow_fromSurface");
+      }
+    if (from_surface != NULL)
+      return from_surface (env, android_surface);
+  }
+
+  g_warning ("Unable to obtain a native window for the Android surface");
+  return NULL;
 }
 
 static void
@@ -397,6 +429,16 @@ _gdk_android_surface_on_visibility_ui_thread (JNIEnv *env, jobject this,
 {
   glong identifier = (*env)->GetLongField (env, this, gdk_android_get_java_cache ()->surface.surface_identifier);
   GdkAndroidDisplay *display = gdk_android_display_get_display_instance ();
+  if (display == NULL)
+    {
+      /* The VM thread may still be bringing up the GDK display when the
+       * SurfaceView surfaces are created on the UI thread; touching the
+       * half-initialized GTK state here can crash (NULL class vtable /
+       * mutex).  Drop the callback, the next surfaceCreated/Changed will
+       * arrive once GTK is up. */
+      g_warning ("Skipping OnVisibility: GDK display not initialized yet");
+      return;
+    }
   GdkAndroidSurface *self = gdk_android_display_get_surface_from_identifier (display, identifier);
   if (!self)
     return;
@@ -432,7 +474,7 @@ _gdk_android_surface_on_visibility_ui_thread (JNIEnv *env, jobject this,
     }
 
   GdkDrawContext *attached = gdk_surface_get_attached_context ((GdkSurface *)self);
-  if (GDK_IS_GL_CONTEXT (attached))
+  if (GDK_IS_GL_CONTEXT (attached) && self->native != NULL)
     gdk_gl_context_set_egl_native_window ((GdkGLContext *)attached, self->native);
 
   g_mutex_unlock (&self->native_lock);

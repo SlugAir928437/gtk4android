@@ -62,46 +62,72 @@
 
 /* Obtain the native ANativeWindow* behind a Java android.view.Surface.
  *
- * ANativeWindow_fromSurface() is documented since API 26, but the Java
- * Surface.mNativeObject field has held the native Surface* (which is an
- * ANativeWindow subclass) since API 1, so reading it via JNI keeps this
- * backend working on android-24 devices without linking libnativewindow.
- * The returned pointer is not refcounted here; callers must wrap it with
- * ANativeWindow_acquire()/ANativeWindow_release() like before. */
+ * Returns a window with one reference held by the caller (the caller must
+ * release it with ANativeWindow_release()), or NULL when no usable window
+ * could be obtained.
+ *
+ * ANativeWindow_fromSurface() (API 26+) is the only reliable way to get a
+ * valid ANativeWindow*: it validates the Java Surface and hands back a
+ * properly refcounted window, so it never returns a dangling pointer.
+ *
+ * NOTE: there is intentionally NO fallback that reads the raw
+ * Surface.mNativeObject field.  That field is not a usable ANativeWindow*
+ * on modern Android releases (Android 10+ moved the native window API into
+ * libnativewindow.so and the Java field can point at an already-released
+ * native Surface), and passing such a pointer to ANativeWindow_acquire()
+ * crashed with SIGSEGV (fault addr 0x0) right after surfaceCreated. */
 static ANativeWindow *
 gdk_android_surface_get_native_window (JNIEnv *env, jobject android_surface)
 {
-  const GdkAndroidJavaCache *cache = gdk_android_get_java_cache ();
+  if (android_surface == NULL)
+    return NULL;
 
-  if (cache->a_surface.native_object != NULL)
+  /* Resolve ANativeWindow_fromSurface lazily.  It lives in
+   * libnativewindow.so on Android 10+ and in libandroid.so on older
+   * builds; some vendor ROMs also re-export it globally.  Fall back to the
+   * global symbol table, and log dlerror() so a failed lookup is
+   * diagnosable from logcat instead of silently degrading. */
+  static ANativeWindow *(*from_surface) (JNIEnv *, jobject);
+  static gboolean resolved = FALSE;
+
+  if (!resolved)
     {
-      jlong native = (*env)->GetLongField (env, android_surface,
-                                           cache->a_surface.native_object);
-      if (native != 0)
-        return (ANativeWindow *)(gintptr) native;
-    }
+      resolved = TRUE;
 
-  /* The mNativeObject field could not be resolved (a failed earlier lookup
-   * left the JNI cache half-initialized). Fall back to the documented NDK
-   * entry point when it exists at runtime (API 26+ devices), resolved lazily
-   * via dlsym so we do not introduce a link-time libnativewindow dependency. */
-  {
-    static ANativeWindow *(*from_surface) (JNIEnv *, jobject);
-    static gboolean resolved = FALSE;
+      static const char *const candidates[] = {
+        "libnativewindow.so",
+        "libandroid.so",
+        NULL, /* global symbol table (dlopen(NULL)) */
+      };
 
-    if (!resolved)
-      {
-        resolved = TRUE;
-        void *handle = dlopen ("libnativewindow.so", RTLD_NOW | RTLD_LOCAL);
-        if (handle == NULL)
-          handle = dlopen ("libandroid.so", RTLD_NOW | RTLD_LOCAL);
-        if (handle != NULL)
+      for (gsize i = 0; i < G_N_ELEMENTS (candidates); i++)
+        {
+          void *handle = candidates[i]
+            ? dlopen (candidates[i], RTLD_NOW | RTLD_LOCAL)
+            : dlopen (NULL, RTLD_NOW | RTLD_LOCAL);
+          if (handle == NULL)
+            {
+              if (candidates[i])
+                g_warning ("dlopen(%s) failed: %s", candidates[i], dlerror ());
+              continue;
+            }
           from_surface = (ANativeWindow *(*)(JNIEnv *, jobject))
             dlsym (handle, "ANativeWindow_fromSurface");
-      }
-    if (from_surface != NULL)
-      return from_surface (env, android_surface);
-  }
+          if (from_surface != NULL)
+            break;
+        }
+
+      if (from_surface == NULL)
+        g_warning ("Unable to resolve ANativeWindow_fromSurface; "
+                   "the display surface will not be usable");
+    }
+
+  if (from_surface != NULL)
+    {
+      ANativeWindow *window = from_surface (env, android_surface);
+      if (window != NULL)
+        return window; /* already holds one reference */
+    }
 
   g_warning ("Unable to obtain a native window for the Android surface");
   return NULL;
@@ -467,9 +493,9 @@ _gdk_android_surface_on_visibility_ui_thread (JNIEnv *env, jobject this,
       (*env)->PushLocalFrame (env, 2);
       jobject holder = (*env)->CallObjectMethod (env, this, gdk_android_get_java_cache ()->surface.get_holder);
       jobject android_surface = (*env)->CallObjectMethod (env, holder, gdk_android_get_java_cache ()->a_surfaceholder.get_surface);
+      /* gdk_android_surface_get_native_window() returns a window that
+       * already holds one reference (or NULL); do not acquire again. */
       self->native = gdk_android_surface_get_native_window (env, android_surface);
-      if (self->native)
-        ANativeWindow_acquire (self->native);
       (*env)->PopLocalFrame (env, NULL);
     }
 

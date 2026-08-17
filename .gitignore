@@ -1,3 +1,8 @@
 /subprojects/*/
 .flatpak-builder/
 .vscode/
+
+#android build outputs
+android-install/
+build-android-*/
+subprojects/.wraplock

@@ -50,14 +50,19 @@ gdk_android_clipboard_finalize (GObject *object)
   GdkAndroidClipboard *self = (GdkAndroidClipboard *) object;
 
   JNIEnv *env = gdk_android_get_env ();
-  (*env)->SetLongField (env, self->listener,
-                        gdk_android_get_java_cache ()->clipboard_provider_change_listener.native_ptr,
-                        0);
-  (*env)->CallVoidMethod (env, self->manager,
-                          gdk_android_get_java_cache ()->a_clipboard_manager.remove_change_listener,
-                          self->listener);
-  (*env)->DeleteGlobalRef (env, self->listener);
-  (*env)->DeleteGlobalRef (env, self->manager);
+  if (self->listener != NULL)
+    {
+      (*env)->SetLongField (env, self->listener,
+                            gdk_android_get_java_cache ()->clipboard_provider_change_listener.native_ptr,
+                            0);
+      if (self->manager != NULL)
+        (*env)->CallVoidMethod (env, self->manager,
+                                gdk_android_get_java_cache ()->a_clipboard_manager.remove_change_listener,
+                                self->listener);
+      (*env)->DeleteGlobalRef (env, self->listener);
+    }
+  if (self->manager != NULL)
+    (*env)->DeleteGlobalRef (env, self->manager);
 
   if (self->cancellable)
     {
@@ -424,13 +429,16 @@ gdk_android_clipboard_from_provider_cb (GdkContentProvider  *provider,
       g_error_free (err);
       goto exit;
     }
-  (*env)->CallVoidMethod (env, self->manager,
-                          gdk_android_get_java_cache ()->a_clipboard_manager.set_primary_clip,
-                          clipdata);
-  if (gdk_android_check_exception (&err))
+  if (self->manager)
     {
-      g_critical ("Failed to set clipboard: %s", err->message);
-      g_error_free (err);
+      (*env)->CallVoidMethod (env, self->manager,
+                              gdk_android_get_java_cache ()->a_clipboard_manager.set_primary_clip,
+                              clipdata);
+      if (gdk_android_check_exception (&err))
+        {
+          g_critical ("Failed to set clipboard: %s", err->message);
+          g_error_free (err);
+        }
     }
 exit:
   (*env)->PopLocalFrame (env, NULL);
@@ -644,8 +652,10 @@ gdk_android_clipboard_read_async (GdkClipboard       *clipboard,
   JNIEnv *env = gdk_android_get_env ();
   (*env)->PushLocalFrame (env, 1);
 
-  jobject clip = (*env)->CallObjectMethod (env, self->manager,
-                                           gdk_android_get_java_cache ()->a_clipboard_manager.get_primary_clip);
+  jobject clip = self->manager
+    ? (*env)->CallObjectMethod (env, self->manager,
+                                gdk_android_get_java_cache ()->a_clipboard_manager.get_primary_clip)
+    : NULL;
   if (!clip)
     {
       g_task_return_new_error (task,
@@ -706,6 +716,20 @@ gdk_android_clipboard_init (GdkAndroidClipboard *self)
   jobject clipboard_mgr = (*env)->CallObjectMethod (env, gdk_android_get_activity (),
                                                     gdk_android_get_java_cache ()->a_context.get_system_service,
                                                     gdk_android_get_java_cache ()->a_context.clipboard_service);
+  if (clipboard_mgr == NULL)
+    {
+      /* On android-24/25 Context.getSystemService(CLIPBOARD_SERVICE) on a
+       * thread without a Looper throws: the ClipboardManager ctor news a
+       * Handler (fixed in API 26 by passing the main-thread handler).  The
+       * GTK display, and with it the clipboard object, is created on the
+       * VM/GTK thread, so degrade gracefully here: the clipboard stays
+       * empty instead of aborting with a pending exception. */
+      (*env)->ExceptionClear (env);
+      self->manager = NULL;
+      self->listener = NULL;
+      (*env)->PopLocalFrame (env, NULL);
+      return;
+    }
   self->manager = (*env)->NewGlobalRef (env, clipboard_mgr);
 
   jobject listener = (*env)->NewObject (env, gdk_android_get_java_cache ()->clipboard_provider_change_listener.klass,
@@ -763,8 +787,10 @@ gdk_android_clipboard_update_remote_formats (GdkAndroidClipboard *self)
 {
   JNIEnv *env = gdk_android_get_env ();
   (*env)->PushLocalFrame (env, 1);
-  jobject desc = (*env)->CallObjectMethod (env, self->manager,
-                                           gdk_android_get_java_cache ()->a_clipboard_manager.get_clip_desc);
+  jobject desc = self->manager
+    ? (*env)->CallObjectMethod (env, self->manager,
+                                gdk_android_get_java_cache ()->a_clipboard_manager.get_clip_desc)
+    : NULL;
   GdkContentFormats *formats = gdk_android_clipboard_description_to_formats(desc);
   (*env)->PopLocalFrame (env, NULL);
   gdk_clipboard_claim_remote ((GdkClipboard *) self, formats);

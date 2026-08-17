@@ -127,59 +127,81 @@ static jobject gdk_android_user_classloader = NULL;
 
 static GdkAndroidJavaCache gdk_android_java_cache;
 
+/* NOTE: every macro below guards on the cached klass being non-NULL.  A
+ * failed FindClass (e.g. android.graphics.BlendMode, API 29, on an
+ * android-24 device) leaves klass NULL, and calling GetMethodID /
+ * GetStaticFieldID with a NULL jclass aborts under CheckJNI ("received
+ * NULL jclass") even without a pending exception. */
 #define POPULATE_REFCACHE_METHOD(cklass, cname, jname, signature) {                                                         \
-    gdk_android_java_cache.cklass.cname = (*env)->GetMethodID (env, gdk_android_java_cache.cklass.klass, jname, signature); \
-    if (gdk_android_java_cache.cklass.cname == NULL)                                                                        \
-      (*env)->ExceptionClear (env);                                                                                         \
+    if (gdk_android_java_cache.cklass.klass != NULL)                                                                        \
+      {                                                                                                                     \
+        gdk_android_java_cache.cklass.cname = (*env)->GetMethodID (env, gdk_android_java_cache.cklass.klass, jname, signature); \
+        if (gdk_android_java_cache.cklass.cname == NULL)                                                                    \
+          (*env)->ExceptionClear (env);                                                                                     \
+      }                                                                                                                     \
   }
 #define POPULATE_STATIC_REFCACHE_METHOD(cklass, cname, jname, signature) {                                                       \
-    gdk_android_java_cache.cklass.cname = (*env)->GetStaticMethodID (env, gdk_android_java_cache.cklass.klass, jname, signature); \
-    if (gdk_android_java_cache.cklass.cname == NULL)                                                                             \
-      (*env)->ExceptionClear (env);                                                                                              \
+    if (gdk_android_java_cache.cklass.klass != NULL)                                                                             \
+      {                                                                                                                          \
+        gdk_android_java_cache.cklass.cname = (*env)->GetStaticMethodID (env, gdk_android_java_cache.cklass.klass, jname, signature); \
+        if (gdk_android_java_cache.cklass.cname == NULL)                                                                         \
+          (*env)->ExceptionClear (env);                                                                                          \
+      }                                                                                                                          \
   }
 #define POPULATE_REFCACHE_MEMBER(cklass, cname, jname, signature) {                                                        \
-    gdk_android_java_cache.cklass.cname = (*env)->GetFieldID (env, gdk_android_java_cache.cklass.klass, jname, signature);  \
-    if (gdk_android_java_cache.cklass.cname == NULL)                                                                         \
-      (*env)->ExceptionClear (env);                                                                                          \
+    if (gdk_android_java_cache.cklass.klass != NULL)                                                                        \
+      {                                                                                                                     \
+        gdk_android_java_cache.cklass.cname = (*env)->GetFieldID (env, gdk_android_java_cache.cklass.klass, jname, signature); \
+        if (gdk_android_java_cache.cklass.cname == NULL)                                                                     \
+          (*env)->ExceptionClear (env);                                                                                      \
+      }                                                                                                                     \
   }
 #define POPULATE_REFCACHE_FIELD(cklass, cname, jname) {                                                                           \
-    jfieldID cklass##_##cname = (*env)->GetStaticFieldID (env, gdk_android_java_cache.cklass.klass, jname, "I");                  \
-    if (cklass##_##cname == NULL)                                                                                                 \
+    if (gdk_android_java_cache.cklass.klass != NULL)                                                                              \
       {                                                                                                                           \
-        (*env)->ExceptionClear (env);                                                                                            \
-        gdk_android_java_cache.cklass.cname = 0;                                                                                 \
+        jfieldID cklass##_##cname = (*env)->GetStaticFieldID (env, gdk_android_java_cache.cklass.klass, jname, "I");              \
+        if (cklass##_##cname == NULL)                                                                                             \
+          {                                                                                                                       \
+            (*env)->ExceptionClear (env);                                                                                        \
+            gdk_android_java_cache.cklass.cname = 0;                                                                             \
+          }                                                                                                                       \
+        else                                                                                                                      \
+          gdk_android_java_cache.cklass.cname = (*env)->GetStaticIntField (env, gdk_android_java_cache.cklass.klass, cklass##_##cname); \
       }                                                                                                                           \
-    else                                                                                                                          \
-      gdk_android_java_cache.cklass.cname = (*env)->GetStaticIntField (env, gdk_android_java_cache.cklass.klass, cklass##_##cname); \
   }
 #define POPULATE_REFCACHE_ENUM(cklass, cname, jname, signature) {                                                              \
-    jfieldID cklass##_##cname##_id = (*env)->GetStaticFieldID (env, gdk_android_java_cache.cklass.klass, jname, signature);      \
-    if (cklass##_##cname##_id == NULL)                                                                                           \
+    if (gdk_android_java_cache.cklass.klass != NULL)                                                                             \
       {                                                                                                                          \
-        (*env)->ExceptionClear (env);                                                                                           \
-        gdk_android_java_cache.cklass.cname = NULL;                                                                              \
-      }                                                                                                                          \
-    else                                                                                                                         \
-      {                                                                                                                          \
-        jobject cklass##_##cname = (*env)->GetStaticObjectField (env, gdk_android_java_cache.cklass.klass, cklass##_##cname##_id); \
-        gdk_android_java_cache.cklass.cname = (*env)->NewGlobalRef (env, cklass##_##cname);                                     \
-        (*env)->DeleteLocalRef (env, cklass##_##cname);                                                                         \
+        jfieldID cklass##_##cname##_id = (*env)->GetStaticFieldID (env, gdk_android_java_cache.cklass.klass, jname, signature);  \
+        if (cklass##_##cname##_id == NULL)                                                                                       \
+          {                                                                                                                      \
+            (*env)->ExceptionClear (env);                                                                                       \
+            gdk_android_java_cache.cklass.cname = NULL;                                                                          \
+          }                                                                                                                      \
+        else                                                                                                                     \
+          {                                                                                                                      \
+            jobject cklass##_##cname = (*env)->GetStaticObjectField (env, gdk_android_java_cache.cklass.klass, cklass##_##cname##_id); \
+            gdk_android_java_cache.cklass.cname = (*env)->NewGlobalRef (env, cklass##_##cname);                                 \
+            (*env)->DeleteLocalRef (env, cklass##_##cname);                                                                     \
+          }                                                                                                                      \
       }                                                                                                                          \
   }
 #define POPULATE_REFCACHE_STRING(cklass, cname, jname) {                                                                               \
-    jfieldID cklass##_##cname##_id = (*env)->GetStaticFieldID (env, gdk_android_java_cache.cklass.klass, jname, "Ljava/lang/String;"); \
-    if (cklass##_##cname##_id == NULL)                                                                                                \
-      {                                                                                                                               \
-        (*env)->ExceptionClear (env);                                                                                                \
-        gdk_android_java_cache.cklass.cname = NULL;                                                                                   \
+    if (gdk_android_java_cache.cklass.klass != NULL)                                                                                   \
+      {                                                                                                                                \
+        jfieldID cklass##_##cname##_id = (*env)->GetStaticFieldID (env, gdk_android_java_cache.cklass.klass, jname, "Ljava/lang/String;"); \
+        if (cklass##_##cname##_id == NULL)                                                                                             \
+          {                                                                                                                            \
+            (*env)->ExceptionClear (env);                                                                                             \
+            gdk_android_java_cache.cklass.cname = NULL;                                                                                \
+          }                                                                                                                            \
+        else                                                                                                                           \
+          {                                                                                                                            \
+            jstring cklass##_##cname = (*env)->GetStaticObjectField (env, gdk_android_java_cache.cklass.klass, cklass##_##cname##_id); \
+            gdk_android_java_cache.cklass.cname = (*env)->NewGlobalRef (env, cklass##_##cname);                                       \
+          }                                                                                                                           \
       }                                                                                                                               \
-    else                                                                                                                              \
-      {                                                                                                                               \
-        jstring cklass##_##cname = (*env)->GetStaticObjectField (env, gdk_android_java_cache.cklass.klass, cklass##_##cname##_id);    \
-        gdk_android_java_cache.cklass.cname = (*env)->NewGlobalRef (env, cklass##_##cname);                                          \
-      }                                                                                                                              \
   }
-
 /* FindClass wrapper that clears the pending JNI exception on failure.
  * The gdk android backend targets android-24, but several framework classes
  * and methods it caches only exist on newer API levels (e.g. BlendMode

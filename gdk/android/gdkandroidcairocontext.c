@@ -116,7 +116,20 @@ gdk_android_cairo_context_begin_frame (GdkDrawContext *draw_context,
           goto cleanup;
         }
 
-      g_assert (self->surface.buffer.format == AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM);
+      if (self->surface.buffer.format != AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM)
+        {
+          /* On android-24/25 the surface format is not guaranteed to be
+           * RGBA_8888 even when setFormat() was requested (drivers may
+           * fall back to RGB_565).  Degrade to an empty frame instead of
+           * aborting on the assertion. */
+          g_warning ("Unexpected native window format %d, rendering empty frame",
+                     self->surface.buffer.format);
+          ANativeWindow_unlockAndPost (self->surface.window);
+          g_clear_pointer (&self->surface.window, ANativeWindow_release);
+          g_mutex_unlock (&surface_impl->native_lock);
+          self->active_surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, 0, 0);
+          goto cleanup;
+        }
 
       cairo_rectangle_int_t true_bounds = {
         .x = self->surface.bounds.left,

@@ -1552,6 +1552,14 @@ gdk_android_content_file_prefix_matches (GFile *prefixf,
 
   JNIEnv *env = gdk_android_get_env();
   (*env)->PushLocalFrame (env, 1);
+  // DocumentsContract.isChildDocument is only available since API 26; on
+  // older devices the cached method stays NULL and prefix checks degrade
+  // to "not a child" instead of crashing.
+  if (gdk_android_get_java_cache ()->a_documents_contract.is_child_document == NULL)
+    {
+      (*env)->PopLocalFrame (env, NULL);
+      return FALSE;
+    }
   jobject resolver = (*env)->CallObjectMethod (env, file->context,
                                                gdk_android_get_java_cache ()->a_context.get_content_resolver);
   // it doesn't matter whether file has been created or not, given either it or its

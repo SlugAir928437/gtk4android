@@ -27,7 +27,7 @@
 
 #include "gdkandroidchoreographersource-private.h"
 
-#include <android/native_window_jni.h>
+#include <android/native_window.h>
 
 #include "gdkandroidinit-private.h"
 #include "gdkandroiddisplay-private.h"
@@ -58,6 +58,22 @@
       }                                                                                                                                                                                 \
     g_return_if_fail (GDK_IS_ANDROID_SURFACE (surface));                                                                                                                                \
   }
+
+/* Obtain the native ANativeWindow* behind a Java android.view.Surface.
+ *
+ * ANativeWindow_fromSurface() only exists since API 26, but the Java
+ * Surface.mNativeObject field has held the native Surface* (which is an
+ * ANativeWindow subclass) since API 1, so reading it via JNI keeps this
+ * backend working on android-24 devices without linking libnativewindow.
+ * The returned pointer is not refcounted here; callers must wrap it with
+ * ANativeWindow_acquire()/ANativeWindow_release() like before. */
+static ANativeWindow *
+gdk_android_surface_get_native_window (JNIEnv *env, jobject android_surface)
+{
+  jlong native = (*env)->GetLongField (env, android_surface,
+                                       gdk_android_get_java_cache ()->a_surface.native_object);
+  return (ANativeWindow *)(gintptr) native;
+}
 
 static void
 gdk_android_surface_reposition_children (GdkAndroidSurface *self)
@@ -409,7 +425,9 @@ _gdk_android_surface_on_visibility_ui_thread (JNIEnv *env, jobject this,
       (*env)->PushLocalFrame (env, 2);
       jobject holder = (*env)->CallObjectMethod (env, this, gdk_android_get_java_cache ()->surface.get_holder);
       jobject android_surface = (*env)->CallObjectMethod (env, holder, gdk_android_get_java_cache ()->a_surfaceholder.get_surface);
-      self->native = ANativeWindow_fromSurface (env, android_surface);
+      self->native = gdk_android_surface_get_native_window (env, android_surface);
+      if (self->native)
+        ANativeWindow_acquire (self->native);
       (*env)->PopLocalFrame (env, NULL);
     }
 

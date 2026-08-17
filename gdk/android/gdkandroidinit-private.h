@@ -328,6 +328,11 @@ typedef struct
   struct
   {
     jclass klass;
+    jfieldID native_object;
+  } a_surface;
+  struct
+  {
+    jclass klass;
     jmethodID get_surface;
     jmethodID get_surface_frame;
     jmethodID lock_canvas;

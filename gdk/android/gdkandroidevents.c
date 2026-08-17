@@ -33,7 +33,7 @@
  * identical for the subset of events handled here.
  *
  * We intentionally do NOT use the NDK native input API (libandroid's
- * AMotionEvent_*/AKeyEvent_*/AInputEvent_* family): its
+ * AMotionEvent_* / AKeyEvent_* / AInputEvent_* family): its
  * AMotionEvent_fromJava/AKeyEvent_fromJava/AInputEvent_release entry
  * points are only provided on Android 12 (API 31) and above, so linking
  * against them makes libgtk-4.so unloadable on older devices (the dlopen

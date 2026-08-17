@@ -41,7 +41,11 @@ gdk_android_deps = [
   #dependency('jni'),
   cc.find_library('android'),
   cc.find_library('jnigraphics'),
-  cc.find_library('nativewindow')
+  # NOTE: libnativewindow only exists at API 26+ and we target android-24
+  # (minSdk).  All ANativeWindow_* symbols used by this backend are part of
+  # the long-standing libandroid ABI (API 9+) and link through libandroid.
+  # The only API-26-only call (ANativeWindow_fromSurface) is replaced by a
+  # JNI read of Surface.mNativeObject, so no nativewindow dependency remains.
 ]
 
 android_runtime = get_option('android-runtime')

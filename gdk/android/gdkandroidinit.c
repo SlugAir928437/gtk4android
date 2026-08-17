@@ -512,6 +512,13 @@ gdk_android_initialize (JNIEnv *env, jobject application_classloader, jobject ac
   POPULATE_REFCACHE_METHOD (a_bundle, constructor, "<init>", "()V")
   POPULATE_REFCACHE_METHOD (a_bundle, put_binder, "putBinder", "(Ljava/lang/String;Landroid/os/IBinder;)V")
 
+  jclass android_surface_class = (*env)->FindClass (env, "android/view/Surface");
+  gdk_android_java_cache.a_surface.klass = (*env)->NewGlobalRef (env, android_surface_class);
+  // mNativeObject holds the native Surface* (an ANativeWindow subclass); read
+  // it directly because ANativeWindow_fromSurface only exists at API 26+ and
+  // we must support android-24 devices.
+  POPULATE_REFCACHE_MEMBER (a_surface, native_object, "mNativeObject", "J")
+
   jclass android_surface_holder_class = (*env)->FindClass (env, "android/view/SurfaceHolder");
   gdk_android_java_cache.a_surfaceholder.klass = (*env)->NewGlobalRef (env, android_surface_holder_class);
   POPULATE_REFCACHE_METHOD (a_surfaceholder, get_surface, "getSurface", "()Landroid/view/Surface;")

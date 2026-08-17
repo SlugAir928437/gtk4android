@@ -49,6 +49,18 @@
 #include <android/choreographer.h>
 #include <stdint.h>
 
+/* AChoreographer_postFrameCallback64 was only introduced in API 29; the
+ * long-based AChoreographer_postFrameCallback is available since API 16 and
+ * is ABI-identical on our 64-bit targets. Use it on android-24/25 so the
+ * library stays loadable on Android 7 devices. */
+#if __ANDROID_API__ >= 29
+#define GDK_ANDROID_CHOREOGRAPHER_POST_FRAME_CALLBACK AChoreographer_postFrameCallback64
+#define GDK_ANDROID_FRAME_TIME_TYPE int64_t
+#else
+#define GDK_ANDROID_CHOREOGRAPHER_POST_FRAME_CALLBACK AChoreographer_postFrameCallback
+#define GDK_ANDROID_FRAME_TIME_TYPE long
+#endif
+
 struct _GdkAndroidChoreographerSource
 {
   GSource       source;
@@ -62,7 +74,7 @@ struct _GdkAndroidChoreographerSource
 };
 
 static void
-gdk_android_choreographer_source_on_frame (int64_t frame_time_nanos,
+gdk_android_choreographer_source_on_frame (GDK_ANDROID_FRAME_TIME_TYPE frame_time_nanos,
                                            void *data)
 {
   GdkAndroidChoreographerSource *self = data;
@@ -75,9 +87,9 @@ gdk_android_choreographer_source_on_frame (int64_t frame_time_nanos,
   if (g_atomic_int_compare_and_exchange (&self->needs_dispatch, FALSE, TRUE))
     g_main_context_wakeup (self->context);
 
-  AChoreographer_postFrameCallback64 (self->choreographer,
-                                      gdk_android_choreographer_source_on_frame,
-                                      self);
+  GDK_ANDROID_CHOREOGRAPHER_POST_FRAME_CALLBACK (self->choreographer,
+                                                 gdk_android_choreographer_source_on_frame,
+                                                 self);
 }
 
 static gboolean
@@ -178,9 +190,9 @@ gdk_android_choreographer_source_unpause (GdkAndroidChoreographerSource *self)
 
   g_atomic_int_set (&self->paused, FALSE);
 
-  AChoreographer_postFrameCallback64 (self->choreographer,
-                                      gdk_android_choreographer_source_on_frame,
-                                      self);
+  GDK_ANDROID_CHOREOGRAPHER_POST_FRAME_CALLBACK (self->choreographer,
+                                                 gdk_android_choreographer_source_on_frame,
+                                                 self);
 }
 
 gint64
